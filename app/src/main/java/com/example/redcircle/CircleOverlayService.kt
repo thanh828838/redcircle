@@ -17,7 +17,8 @@ import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 
 /**
- * Foreground service: thêm CircleView vào WindowManager để vẽ đè lên mọi app.
+ * Foreground service: thêm vòng tròn (không chạm được) và bảng các ô (bấm được)
+ * vào WindowManager để vẽ đè lên mọi app.
  */
 class CircleOverlayService : Service() {
 
@@ -25,16 +26,22 @@ class CircleOverlayService : Service() {
         /** Action dùng cho nút TẮT trên notification. */
         const val ACTION_STOP = "com.example.redcircle.action.STOP"
 
-        /** Extra chứa các dòng chữ (ngăn cách bằng ký tự xuống dòng). */
+        /** Extra chứa tên các ô (ngăn cách bằng ký tự xuống dòng). */
         const val EXTRA_TEXT = "com.example.redcircle.extra.TEXT"
 
         private const val CHANNEL_ID = "red_circle_channel"
         private const val NOTIFICATION_ID = 1001
+
+        /** Đường kính vòng tròn: 180dp. */
+        private const val CIRCLE_DIAMETER_DP = 180f
+
+        /** Khoảng cách giữa bảng ô và vòng tròn. */
+        private const val PANEL_GAP_DP = 8f
     }
 
     private var windowManager: WindowManager? = null
     private var circleView: CircleView? = null
-    private var layoutParams: WindowManager.LayoutParams? = null
+    private var panelView: PanelView? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -59,18 +66,18 @@ class CircleOverlayService : Service() {
             return START_NOT_STICKY
         }
 
-        // Lấy các dòng chữ từ MainActivity gửi sang
-        val lines = intent?.getStringExtra(EXTRA_TEXT)
+        // Lấy tên các ô từ MainActivity gửi sang
+        val labels = intent?.getStringExtra(EXTRA_TEXT)
             ?.split("\n")
             .orEmpty()
 
         showCircle()
-        updateText(lines)
+        showPanel(labels)
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
-        removeCircle()
+        removeViews()
         super.onDestroy()
     }
 
@@ -130,31 +137,33 @@ class CircleOverlayService : Service() {
             .build()
     }
 
-    /** Thêm vòng tròn vào giữa màn hình, không chặn thao tác chạm. */
+    /** API 26+ dùng TYPE_APPLICATION_OVERLAY, thấp hơn dùng TYPE_PHONE. */
     @Suppress("DEPRECATION")
+    private fun overlayType(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+    /** Thêm vòng tròn vào giữa màn hình, không chặn thao tác chạm. */
     private fun showCircle() {
         if (circleView != null) return // Đã hiển thị rồi
 
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         windowManager = wm
 
-        // API 26+ dùng TYPE_APPLICATION_OVERLAY, thấp hơn dùng TYPE_PHONE
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
+        val sizePx = (CIRCLE_DIAMETER_DP * resources.displayMetrics.density).toInt()
 
         val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
 
-        // WRAP_CONTENT: kích thước tự theo CircleView (vòng tròn + chữ)
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            type,
+            sizePx,
+            sizePx,
+            overlayType(),
             flags,
             PixelFormat.TRANSLUCENT
         ).apply {
@@ -165,27 +174,72 @@ class CircleOverlayService : Service() {
         try {
             wm.addView(view, params)
             circleView = view
-            layoutParams = params
         } catch (e: Exception) {
             // Không thêm được view (ví dụ thiếu quyền) -> dừng service
             stopSelf()
         }
     }
 
-    /** Cập nhật chữ và co giãn lại cửa sổ overlay cho khớp. */
-    private fun updateText(lines: List<String>) {
-        val view = circleView ?: return
-        val params = layoutParams ?: return
-        view.setLines(lines)
+    /**
+     * Thêm bảng các ô ngay phía trên vòng tròn.
+     * Cửa sổ này bấm được (không có FLAG_NOT_TOUCHABLE); phần ngoài các ô vẫn chạm xuyên qua.
+     */
+    private fun showPanel(rawLabels: List<String>) {
+        removePanel() // Gỡ bảng cũ nếu đang có (khi bấm BẬT lại với chữ mới)
+
+        val labels = rawLabels
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .take(PanelView.MAX_BOXES)
+        if (labels.isEmpty()) return
+
+        val wm = windowManager ?: return
+        val density = resources.displayMetrics.density
+
+        // Chiều cao bảng = số ô x (chiều cao ô + 2 lề)
+        val panelHeightPx =
+            labels.size * (PanelView.BOX_HEIGHT_DP + 2 * PanelView.BOX_MARGIN_DP) * density
+        val circleRadiusPx = CIRCLE_DIAMETER_DP / 2f * density
+
+        val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayType(),
+            flags,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.CENTER
+            // Dịch lên trên: mép dưới bảng cách mép trên vòng tròn một khoảng nhỏ
+            y = -(circleRadiusPx + PANEL_GAP_DP * density + panelHeightPx / 2f).toInt()
+        }
+
+        val view = PanelView(this, labels)
         try {
-            windowManager?.updateViewLayout(view, params)
+            wm.addView(view, params)
+            panelView = view
         } catch (e: Exception) {
-            // View đã bị gỡ -> bỏ qua
+            // Không thêm được bảng -> bỏ qua, vòng tròn vẫn hoạt động
         }
     }
 
-    /** Gỡ vòng tròn khỏi màn hình. */
-    private fun removeCircle() {
+    private fun removePanel() {
+        panelView?.let { view ->
+            try {
+                windowManager?.removeView(view)
+            } catch (e: Exception) {
+                // View đã bị gỡ trước đó -> bỏ qua
+            }
+        }
+        panelView = null
+    }
+
+    /** Gỡ toàn bộ vòng tròn và bảng khỏi màn hình. */
+    private fun removeViews() {
+        removePanel()
         circleView?.let { view ->
             try {
                 windowManager?.removeView(view)
@@ -194,6 +248,5 @@ class CircleOverlayService : Service() {
             }
         }
         circleView = null
-        layoutParams = null
     }
 }
