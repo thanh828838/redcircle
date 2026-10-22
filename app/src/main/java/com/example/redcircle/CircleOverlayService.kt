@@ -13,11 +13,15 @@ import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
+import kotlin.math.abs
 
 /**
- * Foreground service: thêm vòng tròn (không chạm được) và bảng các ô (bấm được)
+ * Foreground service: thêm vòng tròn (không chạm được) và bong bóng menu (kéo thả được)
  * vào WindowManager để vẽ đè lên mọi app.
  */
 class CircleOverlayService : Service() {
@@ -26,22 +30,28 @@ class CircleOverlayService : Service() {
         /** Action dùng cho nút TẮT trên notification. */
         const val ACTION_STOP = "com.example.redcircle.action.STOP"
 
-        /** Extra chứa tên các ô (ngăn cách bằng ký tự xuống dòng). */
+        /** Extra chứa tên các nút chức năng (ngăn cách bằng ký tự xuống dòng). */
         const val EXTRA_TEXT = "com.example.redcircle.extra.TEXT"
 
+        /** Extra chứa tiêu đề menu. */
+        const val EXTRA_TITLE = "com.example.redcircle.extra.TITLE"
+
+        private const val DEFAULT_TITLE = "MENU"
         private const val CHANNEL_ID = "red_circle_channel"
         private const val NOTIFICATION_ID = 1001
 
-        /** Đường kính vòng tròn: 180dp. */
-        private const val CIRCLE_DIAMETER_DP = 180f
+        /** Đường kính vòng tròn: 110dp (cỡ trung bình). */
+        private const val CIRCLE_DIAMETER_DP = 110f
 
-        /** Khoảng cách giữa bảng ô và vòng tròn. */
-        private const val PANEL_GAP_DP = 8f
+        /** Vị trí ban đầu của bong bóng menu (tính từ góc trên trái màn hình). */
+        private const val MENU_START_X_DP = 16f
+        private const val MENU_START_Y_DP = 140f
     }
 
     private var windowManager: WindowManager? = null
     private var circleView: CircleView? = null
-    private var panelView: PanelView? = null
+    private var menuView: FloatingMenuView? = null
+    private var menuParams: WindowManager.LayoutParams? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -66,13 +76,17 @@ class CircleOverlayService : Service() {
             return START_NOT_STICKY
         }
 
-        // Lấy tên các ô từ MainActivity gửi sang
+        // Lấy tiêu đề và tên các nút từ MainActivity gửi sang
+        val title = intent?.getStringExtra(EXTRA_TITLE)
+            ?.trim()
+            .orEmpty()
+            .ifEmpty { DEFAULT_TITLE }
         val labels = intent?.getStringExtra(EXTRA_TEXT)
             ?.split("\n")
             .orEmpty()
 
         showCircle()
-        showPanel(labels)
+        showMenu(title, labels)
         return START_NOT_STICKY
     }
 
@@ -181,30 +195,26 @@ class CircleOverlayService : Service() {
     }
 
     /**
-     * Thêm bảng các ô ngay phía trên vòng tròn.
-     * Cửa sổ này bấm được (không có FLAG_NOT_TOUCHABLE); phần ngoài các ô vẫn chạm xuyên qua.
+     * Thêm bong bóng menu. Cửa sổ này bấm được (không có FLAG_NOT_TOUCHABLE),
+     * nhưng chỉ chiếm đúng vùng của bong bóng/bảng nên phần còn lại vẫn chạm xuyên qua.
      */
-    private fun showPanel(rawLabels: List<String>) {
-        removePanel() // Gỡ bảng cũ nếu đang có (khi bấm BẬT lại với chữ mới)
+    private fun showMenu(title: String, rawLabels: List<String>) {
+        removeMenu() // Gỡ menu cũ nếu đang có (khi bấm BẬT lại với nội dung mới)
 
         val labels = rawLabels
             .map { it.trim() }
             .filter { it.isNotEmpty() }
-            .take(PanelView.MAX_BOXES)
+            .take(FloatingMenuView.MAX_ITEMS)
         if (labels.isEmpty()) return
 
         val wm = windowManager ?: return
         val density = resources.displayMetrics.density
 
-        // Chiều cao bảng = số ô x (chiều cao ô + 2 lề)
-        val panelHeightPx =
-            labels.size * (PanelView.BOX_HEIGHT_DP + 2 * PanelView.BOX_MARGIN_DP) * density
-        val circleRadiusPx = CIRCLE_DIAMETER_DP / 2f * density
-
         val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
 
+        // Gốc toạ độ ở góc trên trái màn hình để dễ kéo thả
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -212,34 +222,118 @@ class CircleOverlayService : Service() {
             flags,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.CENTER
-            // Dịch lên trên: mép dưới bảng cách mép trên vòng tròn một khoảng nhỏ
-            y = -(circleRadiusPx + PANEL_GAP_DP * density + panelHeightPx / 2f).toInt()
+            gravity = Gravity.TOP or Gravity.START
+            x = (MENU_START_X_DP * density).toInt()
+            y = (MENU_START_Y_DP * density).toInt()
         }
 
-        val view = PanelView(this, labels)
+        val view = FloatingMenuView(this, title, labels) {
+            onMenuExpandedChanged()
+        }
+        view.bubble.setOnTouchListener(DragListener(view, params))
+
         try {
             wm.addView(view, params)
-            panelView = view
+            menuView = view
+            menuParams = params
         } catch (e: Exception) {
-            // Không thêm được bảng -> bỏ qua, vòng tròn vẫn hoạt động
+            // Không thêm được menu -> bỏ qua, vòng tròn vẫn hoạt động
         }
     }
 
-    private fun removePanel() {
-        panelView?.let { view ->
+    /** Khi menu mở/gập: chờ View đo lại kích thước rồi kéo cả menu vào trong màn hình. */
+    private fun onMenuExpandedChanged() {
+        val view = menuView ?: return
+        val params = menuParams ?: return
+        view.post {
+            clampToScreen(view, params)
+            updateMenuLayout(view, params)
+        }
+    }
+
+    /** Giữ menu không trượt ra ngoài mép màn hình. */
+    private fun clampToScreen(view: View, params: WindowManager.LayoutParams) {
+        val metrics = resources.displayMetrics
+        val maxX = (metrics.widthPixels - view.width).coerceAtLeast(0)
+        val maxY = (metrics.heightPixels - view.height).coerceAtLeast(0)
+        params.x = params.x.coerceIn(0, maxX)
+        params.y = params.y.coerceIn(0, maxY)
+    }
+
+    private fun updateMenuLayout(view: View, params: WindowManager.LayoutParams) {
+        try {
+            windowManager?.updateViewLayout(view, params)
+        } catch (e: Exception) {
+            // View đã bị gỡ -> bỏ qua
+        }
+    }
+
+    /**
+     * Bộ xử lý kéo thả cho bong bóng:
+     * - Vuốt quá ngưỡng -> di chuyển cả menu theo ngón tay.
+     * - Chạm nhẹ (không kéo) -> mở/gập menu.
+     */
+    private inner class DragListener(
+        private val view: FloatingMenuView,
+        private val params: WindowManager.LayoutParams
+    ) : View.OnTouchListener {
+
+        private val touchSlop = ViewConfiguration.get(this@CircleOverlayService).scaledTouchSlop
+        private var startX = 0
+        private var startY = 0
+        private var downRawX = 0f
+        private var downRawY = 0f
+        private var dragging = false
+
+        override fun onTouch(v: View, event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startX = params.x
+                    startY = params.y
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    dragging = false
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - downRawX
+                    val dy = event.rawY - downRawY
+                    if (!dragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
+                        dragging = true
+                    }
+                    if (dragging) {
+                        params.x = (startX + dx).toInt()
+                        params.y = (startY + dy).toInt()
+                        clampToScreen(view, params)
+                        updateMenuLayout(view, params)
+                    }
+                    return true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!dragging) view.toggle() // Chạm nhẹ -> mở/gập menu
+                    return true
+                }
+                MotionEvent.ACTION_CANCEL -> return true
+            }
+            return false
+        }
+    }
+
+    private fun removeMenu() {
+        menuView?.let { view ->
             try {
                 windowManager?.removeView(view)
             } catch (e: Exception) {
                 // View đã bị gỡ trước đó -> bỏ qua
             }
         }
-        panelView = null
+        menuView = null
+        menuParams = null
     }
 
-    /** Gỡ toàn bộ vòng tròn và bảng khỏi màn hình. */
+    /** Gỡ toàn bộ vòng tròn và menu khỏi màn hình. */
     private fun removeViews() {
-        removePanel()
+        removeMenu()
         circleView?.let { view ->
             try {
                 windowManager?.removeView(view)

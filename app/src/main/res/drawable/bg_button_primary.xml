@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Nút chính: nền đỏ, có hiệu ứng gợn khi bấm -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#44FFFFFF">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/accent_red" />
+            <corners android:radius="10dp" />
+        </shape>
+    </item>
+</ripple>

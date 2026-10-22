@@ -1,10 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Vòng Tròn Đỏ</string>
+    <string name="title_main">VÒNG TRÒN ĐỎ</string>
+    <string name="subtitle_main">Vòng tròn và menu nổi tùy chỉnh</string>
+    <string name="label_title">TIÊU ĐỀ MENU</string>
+    <string name="label_items">CÁC NÚT CHỨC NĂNG</string>
     <string name="btn_start">BẬT VÒNG TRÒN</string>
     <string name="btn_stop">TẮT</string>
-    <string name="hint_text">Nhập tên các ô (mỗi dòng một ô, tối đa 5 ô)</string>
+    <string name="hint_title">Ví dụ: MENU (để trống sẽ là MENU)</string>
+    <string name="hint_text">Mỗi dòng một nút chức năng (tối đa 6 nút)</string>
+    <string name="state_on">BẬT</string>
+    <string name="state_off">TẮT</string>
     <string name="panel_success">Dùng thành công</string>
+    <string name="panel_off">Đã tắt</string>
     <string name="hint_permission">Cần cấp quyền Hiển thị trên các ứng dụng khác để dùng vòng tròn. Hãy mở lại ứng dụng sau khi cấp quyền.</string>
     <string name="toast_cannot_open_settings">Không mở được trang cấp quyền. Hãy cấp quyền thủ công trong Cài đặt.</string>
     <string name="notification_channel_name">Vòng tròn nổi</string>

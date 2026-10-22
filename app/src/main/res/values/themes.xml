@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.RedCircle" parent="Theme.AppCompat.Light.DarkActionBar" />
+    <!-- Giao diện tối, không có thanh tiêu đề mặc định -->
+    <style name="Theme.RedCircle" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/bg_dark</item>
+        <item name="android:statusBarColor">@color/bg_dark</item>
+        <item name="android:navigationBarColor">@color/bg_dark</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="colorAccent">@color/accent_red</item>
+        <item name="colorControlActivated">@color/accent_red</item>
+        <item name="colorControlNormal">@color/text_secondary</item>
+    </style>
 </resources>
