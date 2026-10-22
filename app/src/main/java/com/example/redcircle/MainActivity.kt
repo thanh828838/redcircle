@@ -2,6 +2,7 @@ package com.example.redcircle
 
 import android.Manifest
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -10,6 +11,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,13 +19,19 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 
 /**
- * Màn hình chính: kiểm tra quyền overlay và có 2 nút BẬT / TẮT.
+ * Màn hình chính: kiểm tra quyền overlay, nhập chữ và có 2 nút BẬT / TẮT.
  */
 class MainActivity : AppCompatActivity() {
+
+    private companion object {
+        const val PREFS_NAME = "red_circle_prefs"
+        const val KEY_TEXT = "overlay_text"
+    }
 
     private lateinit var btnStart: Button
     private lateinit var btnStop: Button
     private lateinit var tvHint: TextView
+    private lateinit var edtText: EditText
 
     // Mở màn hình cấp quyền overlay; khi quay lại thì cập nhật giao diện
     private val overlayPermissionLauncher =
@@ -42,6 +50,12 @@ class MainActivity : AppCompatActivity() {
         btnStart = findViewById(R.id.btnStart)
         btnStop = findViewById(R.id.btnStop)
         tvHint = findViewById(R.id.tvHint)
+        edtText = findViewById(R.id.edtText)
+
+        // Nạp lại đoạn chữ đã nhập lần trước
+        edtText.setText(
+            getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_TEXT, "")
+        )
 
         btnStart.setOnClickListener { onStartClicked() }
         btnStop.setOnClickListener {
@@ -90,18 +104,26 @@ class MainActivity : AppCompatActivity() {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        // Khởi động foreground service để vẽ vòng tròn
-        ContextCompat.startForegroundService(
-            this,
-            Intent(this, CircleOverlayService::class.java)
-        )
+        // Lưu đoạn chữ để lần sau mở app còn sẵn
+        val text = edtText.text.toString()
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_TEXT, text)
+            .apply()
+
+        // Khởi động foreground service và gửi kèm các dòng chữ
+        val intent = Intent(this, CircleOverlayService::class.java)
+            .putExtra(CircleOverlayService.EXTRA_TEXT, text)
+        ContextCompat.startForegroundService(this, intent)
     }
 
-    /** Có quyền -> hiện 2 nút; chưa có quyền -> ẩn nút và hiện lời nhắc. */
+    /** Có quyền -> hiện ô nhập chữ và 2 nút; chưa có quyền -> hiện lời nhắc. */
     private fun updateUi() {
         val granted = hasOverlayPermission()
-        btnStart.visibility = if (granted) View.VISIBLE else View.GONE
-        btnStop.visibility = if (granted) View.VISIBLE else View.GONE
+        val state = if (granted) View.VISIBLE else View.GONE
+        edtText.visibility = state
+        btnStart.visibility = state
+        btnStop.visibility = state
         tvHint.visibility = if (granted) View.GONE else View.VISIBLE
     }
 }

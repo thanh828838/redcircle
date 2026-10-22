@@ -16,6 +16,18 @@
         android:text="@string/hint_permission"
         android:visibility="gone" />
 
+    <!-- Ô nhập chữ hiện phía trên vòng tròn (mỗi dòng một câu) -->
+    <EditText
+        android:id="@+id/edtText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        android:gravity="top"
+        android:hint="@string/hint_text"
+        android:inputType="textMultiLine|textCapSentences"
+        android:maxLines="5"
+        android:minLines="3" />
+
     <Button
         android:id="@+id/btnStart"
         android:layout_width="match_parent"

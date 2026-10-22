@@ -25,15 +25,16 @@ class CircleOverlayService : Service() {
         /** Action dùng cho nút TẮT trên notification. */
         const val ACTION_STOP = "com.example.redcircle.action.STOP"
 
+        /** Extra chứa các dòng chữ (ngăn cách bằng ký tự xuống dòng). */
+        const val EXTRA_TEXT = "com.example.redcircle.extra.TEXT"
+
         private const val CHANNEL_ID = "red_circle_channel"
         private const val NOTIFICATION_ID = 1001
-
-        /** Đường kính vòng tròn: 180dp. */
-        private const val CIRCLE_DIAMETER_DP = 180f
     }
 
     private var windowManager: WindowManager? = null
     private var circleView: CircleView? = null
+    private var layoutParams: WindowManager.LayoutParams? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -58,7 +59,13 @@ class CircleOverlayService : Service() {
             return START_NOT_STICKY
         }
 
+        // Lấy các dòng chữ từ MainActivity gửi sang
+        val lines = intent?.getStringExtra(EXTRA_TEXT)
+            ?.split("\n")
+            .orEmpty()
+
         showCircle()
+        updateText(lines)
         return START_NOT_STICKY
     }
 
@@ -131,8 +138,6 @@ class CircleOverlayService : Service() {
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         windowManager = wm
 
-        val sizePx = (CIRCLE_DIAMETER_DP * resources.displayMetrics.density).toInt()
-
         // API 26+ dùng TYPE_APPLICATION_OVERLAY, thấp hơn dùng TYPE_PHONE
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -145,9 +150,10 @@ class CircleOverlayService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
 
+        // WRAP_CONTENT: kích thước tự theo CircleView (vòng tròn + chữ)
         val params = WindowManager.LayoutParams(
-            sizePx,
-            sizePx,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
             type,
             flags,
             PixelFormat.TRANSLUCENT
@@ -159,9 +165,22 @@ class CircleOverlayService : Service() {
         try {
             wm.addView(view, params)
             circleView = view
+            layoutParams = params
         } catch (e: Exception) {
             // Không thêm được view (ví dụ thiếu quyền) -> dừng service
             stopSelf()
+        }
+    }
+
+    /** Cập nhật chữ và co giãn lại cửa sổ overlay cho khớp. */
+    private fun updateText(lines: List<String>) {
+        val view = circleView ?: return
+        val params = layoutParams ?: return
+        view.setLines(lines)
+        try {
+            windowManager?.updateViewLayout(view, params)
+        } catch (e: Exception) {
+            // View đã bị gỡ -> bỏ qua
         }
     }
 
@@ -175,5 +194,6 @@ class CircleOverlayService : Service() {
             }
         }
         circleView = null
+        layoutParams = null
     }
 }
